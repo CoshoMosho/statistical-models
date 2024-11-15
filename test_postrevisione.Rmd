@@ -1,0 +1,586 @@
+---
+title: "Investigating factors that influences Life Expectancy"
+author: 'Statistical methods for data science (2022/23) - 6 cfu - Matteo Vicari'
+output: 
+  ioslides_presentation: 
+    smaller: yes
+    widescreen: true
+    centre: true
+css: custom_styles.css
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+## Index
+
+page 3 - Project's aim
+
+page 4 - Dataset Overview
+
+page 6 - Basic analysis of the dataset
+
+page 20 - Linear regression models
+
+page 24 - Gam models
+
+page 26 - Comments
+
+## Project's aim
+
+- Does life expectancy differ in different regions?
+- What factors are significant in determining life expectancy?
+
+
+## Dataset Overview
+
+The source of the data was a UN publication, UN Human Development Report. The data comprises national health related official statistics for 185 countries and 15 variables. As a measure of the average quality of health care the variable **LIFEEXP** may be used.
+
+Not all countries provided information for each variable. Data not available are noted under the column **NA**.
+
+Ignoring the variables **REGION** and **COUNTRY** the remaining 13 numeric variables are summarized in Table 1.
+
+```{r intro, echo = FALSE, include=FALSE}
+library("GGally")
+require(ggplot2)
+require(mgcv)
+library(dplyr)
+#install.packages("dplyr")
+#install.packages("kableExtra")
+library(dplyr)
+library(kableExtra)
+library(gplots)
+library("PerformanceAnalytics")
+#library(imager)
+library(grid)
+library(patchwork)
+library(MASS)
+library(janitor)
+library(broom)
+library(glue)
+library(htmltools)
+library(car)
+library(lmtest)
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+
+df <- read.csv("2.csv", header = TRUE, sep = ",")
+data2<- read.csv("UNLifeExpectancyWithValues.csv", header = TRUE, sep = ",")
+
+
+
+```
+
+```{r general infos}
+# 
+# 
+# soglia <- 1
+# numero_formattato <- format(data2$GDP/data2$POP, scientific = FALSE)
+# print(numero_formattato)
+# data2 <- subset(data2, data2$GDP/data2$POP >= soglia)
+
+csvintro <- read.csv("intro.csv")
+
+csvintro %>%
+  kbl( table.attr = "class='my-custom-table'",
+      caption="Table 1: UN National Life Expectancy in 185 Counties",
+       format= "html",
+   col.names = c("Name","Description","NA","Mean","Median"),
+                  align="r") %>%
+   kable_classic(full_width = F, html_font = "helvetica") %>%
+  kable_styling(font_size = 12) %>%
+  kable_styling(latex_options = c("striped", "scale_down"))
+```
+
+
+## 
+
+Notably, some variables exhibit a significant number of missing values, such as **SMOKING**, **RESEARCHERS**, **PUBLICEDUCATION**, and **FEMALEBOSS**, it seems that many countries don't have this data. Consequently, these variables will be excluded from the analysis.
+
+Data from Hong kong and Somalia has been removed since too many variables were NA.
+
+```{r general infos 2, comment=NA }
+dataGrouped <- df
+# Raggruppa il dataset per la variabile "regione" e calcola il numero di missing values per ciascuna variabile
+dataGrouped <- dataGrouped[,names(dataGrouped) %in% c( "REGION","POP" , "PRIVATEHEALTH", "HEALTHEXPEND", "PHYSICIAN", "ILLITERATE", "FERTILITY", "BIRTHATTEND", "GDP")]
+result <- dataGrouped %>%
+  group_by(REGION) %>%
+  summarize_all(~sum(is.na(.)))
+result %>%
+  kbl( table.attr = "class='my-custom-table2'",
+      caption="Table 2: Regions are -1- Middle East and North Africa -2- South-east Asia -3- Central and South America -4- Central Asia -5- Turkey Ethiopia Cyprus -6- Africa -7- East Europe Russia and -STAN countries -8- Europe, North America, Australia, New Zeland",
+       format= "html",
+   col.names = c( "REGION","ILLITERATE" , "POP", "FERTILITY", "PRIVATEHEALTH", "HEALTHEXPEND", "BIRTHATTEND", "PHYSICIAN", "GDP"),
+                  align="r") %>%
+   kable_classic(full_width = F, html_font = "helvetica") %>%
+  kable_styling(font_size = 12) %>%
+  kable_styling(latex_options = c("striped", "scale_down"))
+```
+
+## Basic analysis
+
+**ILLITERATE** has a high number of missing values and region 3 and 6 has the most of them but values are similar in every region we consider.
+
+**BIRTHATTEND** has 5 NA in region 8. But the value is similar to all rows in region 8.
+
+Region 5 is the only region that has only 3 countries but no NA. These 3 countries has been moved from region 5 to other regions that have similar values (Turkey to region 1, Cyprus to region 7 and Ethiopia to region 6).
+Djibouti has been moved to region 6 for the same reason.
+
+
+Other regions have sufficient values so that, for the other missing values **we will impute them using mean** (for example a NA of gdp in region 8 in evaluated with the gdp mean of the region 8).
+
+
+## Variables summary
+
+Looking at the table above in average, the life expectancy has mean of 67. And 50% of countries has a life expectancy below 71 years and 25% below 60 years.
+
+```{r variable summaries 1 , echo = FALSE,  include= TRUE, comment=NA}
+#drop country column
+
+df2 <- df[,!names(df) %in% c("COUNTRY", "REGION","FEMALEBOSS", "RESEARCHERS", "SMOKING")]
+
+# Creazione del summary dei dati per le prime x variabili
+summary_part1 <- summary(df2[, 1:1])
+print(summary_part1)
+#summary of variables 1 
+
+#summary(data$ILLITERATE)
+#boxplot(data$ILLITERATE)
+
+#summary(data$POP)
+#boxplot(data$POP)
+```
+
+Lowest values for Life Expectancy can be found in Zambia(40.5), Swaziland(40.9) and Zimbabwe(40.9). On the other side, countries with the highest values for Life Expectancy are Japan(82.3), Iceland(81.5) and Switzerland(82.3).
+
+```{r variable summaries 2 , echo = FALSE,  include= TRUE, comment=NA}
+# Creazione del summary dei dati per le variabili rimanenti
+#summary_part2 <- summary(df2[, 6:ncol(df2)])
+#print(summary_part2)
+
+```
+
+## 25% of countries with 
+
+**the lowest life expectancy**
+
+let's delve into an analysis of the 25% of countries with the lowest life expectancy. Within this subset of countries, we observe some distinctive patterns. The mean **illiteracy** rate stands at **37**, notably higher than the overall average of **17.7** for all countries. Additionally, the average **fertility** rate within this group is **5.4**, which exceeds the global average of **3.2**. Furthermore, it's worth mentioning that the average value of **births attended by skilled health personnel** for these countries is **49.6%**, significantly lower than the overall global average of **78.2%**. Finally, within this segment of countries, the average **health expenditure** is only **126**, which starkly contrasts with the global average of **718** for all countries.
+ 
+**highest life expectancy**
+
+In contrast, the 25% of countries with the highest life expectancy exhibit significantly more favorable indicators. This group allocates a substantial amount of resources to healthcare, with an average **health expenditure** of **1,953**, surpassing the overall average of **718**. Furthermore, they demonstrate a lower mean **illiteracy** rate of **4.7**, boast a higher **GDP** at **755**, and achieve a remarkable **96%** **attendance rate for births**, all of which stand in stark contrast to the global averages.
+
+```{r correlations , echo = FALSE,  include= TRUE}
+#Impute missing values with mean of column
+#VEDERE CODICE LavoroMissingValues.R !!!!
+
+data <- data2[,!names(data2) %in% c("COUNTRY", "REGION","PUBLICEDUCATION")]
+#data<- df2
+
+
+
+#correlation matrix
+#par(pty = "s")
+#par(pin = c(15, 15))
+#par(mar = c(1,1,1,1))
+#suppressWarnings(chart.Correlation(data))
+
+```
+
+
+
+## Life Expectancy
+
+
+```{r}
+#Boxplots
+ggplot(data = data, aes(x =LIFEEXP, y="")) +
+  geom_boxplot(fill = "lightblue", color = "black") +
+  labs(title = "Distribution of Life Expectancy", 
+       x="Life Expectancy", y=NULL)+
+  scale_x_continuous(limits = c(40, 90))+
+  theme_minimal()+
+  theme(axis.line.y = element_blank(),
+        plot.title = element_text(face = "bold", hjust = 0.4))
+```
+
+
+- Life expectancy is negatively skewed. 
+
+- There are no outliers in the life expectancy
+
+##
+
+<div class="custom-text">
+- Region 8 has the highest average Life expectancy while region 6 has the lowest
+- Region 1, 3, and 4 have outlier life expectancy where some people have very low life expectancy
+- Region 1, 3, 4 and 6 have outliers
+</div>
+
+```{r}
+#Boxplots
+data$REGION <- data2$REGION
+ggplot(data = data, aes(x = factor(REGION), y=LIFEEXP)) +
+  geom_boxplot(fill = "lightblue", color = "black") +
+  labs(title = "Distribution of Life Expectancy by Region", 
+       y="Life Expectancy",
+       x = "Region")+
+   scale_y_continuous(limits = c(0, 90))+
+  theme_minimal()+
+  theme(axis.line.y = element_blank(),
+        plot.title = element_text(face = "bold", hjust = 0.4))
+
+```
+
+
+```{r}
+
+# Function to create a boxplot
+create_boxplot <- function(data, variable, custom_labels) {
+  # Check if the variable exists in the dataset
+  if (!variable %in% names(data)) {
+    stop("Variable not found in the dataset")
+  }
+  
+  # Get the custom label for the variable
+  variable_label <- custom_labels[variable]
+  
+  # Create the boxplot
+  plot <- ggplot(data, aes(x = !!sym(variable), y="")) + # you can also use: x = aes(x = .data[[variable]] -> The alternative injection is the better one
+    geom_boxplot(fill = "lightblue", color = "black") +
+    labs(title = paste(variable_label), x = "", y = NULL) +
+    scale_x_continuous() +
+    theme_minimal() +
+    theme(axis.line.y = element_blank(),
+          plot.title = element_text(face = "italic", hjust = 0.5),
+          axis.title.x = element_text(hjust = 0.5))
+  
+  return(plot)
+}
+
+# Function to create boxplots for all numeric variables
+create_boxplots_for_numeric <- function(data, custom_labels) {
+  numeric_vars <- names(data)[sapply(data, is.numeric)]
+  boxplots <- list()
+  
+  for (var in numeric_vars) {
+    boxplots[[var]] <- create_boxplot(data, var, custom_labels)
+  }
+  
+  return(boxplots)
+}
+
+## Assign labels to variables
+custom_labels <- c(
+  LIFEEXP = "Life expectancy at birth, in years",
+  ILLITERATE = "Adult illiteracy rate, % aged 15 and older",
+  POP = "2005 population, in millions",
+  FERTILITY = "Total fertility rate, births per woman",
+  PRIVATEHEALTH = "2004 private expenditure on health",
+  PUBLICEDUCATION = "Public expenditure on education",
+  HEALTHEXPEND = "2004 health expenditure per capita",
+  BIRTHATTEND = "Births attended by skilled health personnel (%)",
+  PHYSICIAN = "Physicians = per 100,000 people",
+  SMOKING = "Prevalence of smoking, (male) % of adults",
+  RESEARCHERS = "Researchers in R&D, per million people",
+  GDP = "Gross domestic product, in billions of USD",
+  FEMALEBOSS = "Legislators, senior officials and managers = % female"
+
+)
+
+```
+
+## Distribution of Numeric Variables
+```{r}
+boxplots_list <- create_boxplots_for_numeric(data = data[, 2:5], custom_labels)
+
+# Combine all boxplots
+wrap_plots(boxplots_list)
+
+```
+
+## Distribution of Numeric Variables
+```{r}
+boxplots_list <- create_boxplots_for_numeric(data = data[, 6:9], custom_labels)
+
+# Combine all boxplots
+wrap_plots(boxplots_list)
+
+```
+
+## Distribution of Numeric Variables
+- **HEALTHEXPEND**,**ILLITERATE**, **PRIVATEHEALTH**, **POP**, **FERTILITY** and **PHYSICIAN** have a positively skewed distribution.
+- **BIRTHATTEND** has a negatively skewed distribution. 
+- **PRIVATEHEALTH** has an approximately symmetrical distribution
+- There are outliers in each of these variables except for the **BIRTHATTEND** and **FERTILITY**
+
+## Life Expectancy and Independent Variables
+
+
+```{r}
+
+create_scatterplot_matrix <- function(data, response_var) {
+  # Get the names of independent variables
+  independent_vars <- setdiff(names(data), response_var)
+  
+  # Initialize an empty list to store scatterplots
+  plots <- list()
+  
+  # Loop through the independent variables and create scatterplots
+  for (var in independent_vars) {
+    # Create a scatterplot
+    plot <- ggplot(data, aes_string(x = var, y = response_var)) +
+      geom_point() +
+      labs(title = paste(response_var, "vs", var)) +
+      theme_minimal()+
+          theme(axis.line.y = element_blank(),
+          plot.title = element_text(face = "italic", hjust = 0.5),
+          axis.title.x = element_text(hjust = 0.5))
+
+    
+    # Calculate the correlation coefficient
+    correlation <- cor(data[[var]], data[[response_var]], use = "complete.obs")
+    
+    # Convert correlation to text
+    corr_text <- paste("Correlation =", round(correlation, 2))
+    
+    # Add the correlation coefficient
+    plot <- plot + annotation_custom(
+      grob = textGrob(corr_text, x = 1, y = 1, hjust = 1, vjust = 1, 
+                      gp = gpar(fontface = "bold", col = "red", fontsize = 8)),
+      xmin = Inf, xmax = Inf, ymin = Inf, ymax = Inf
+    )
+    
+    plots[[var]] <- plot
+  }
+  
+  # Combine the scatterplots
+  combined_plot <- wrap_plots(plots, ncol = 2)  # You can adjust the number of columns as needed
+  
+  return(combined_plot)
+}
+
+
+```
+
+
+
+
+
+
+```{r}
+# Example usage with the iris dataset
+combined_plot <- create_scatterplot_matrix(data[, 1:5], "LIFEEXP")
+combined_plot
+
+```
+
+
+## Life Expectancy and Independent Variables
+
+- There is a strong negative relationship between **LIFEEXP** and **ILLITERATE** as well as **LIFEEXP** and **FERTILITY**. This implies that an increase in ILLITERATE and FERTILITY leads to a decrease in LIFEEXP
+- There is no correlation between **LIFEEXP** and **POP** as well as **LIFEEXP** and **PRIVATEHEALTH**. 
+
+## Life Expectancy and Independent Variables
+
+```{r}
+# Example usage with the iris dataset
+combined_plot <- create_scatterplot_matrix(data[, c(1, 6:9)], "LIFEEXP")
+combined_plot
+
+```
+
+## Life Expectancy and Independent Variables
+
+- The chart in the previous slide, shows that **HEALTHEXPEND**, **BIRTHATTEND**, and **PHYSICIAN** have moderate positive linear relationship with **LIFEEXP**. This implies that an increase in these variables moderately increases the LIFEEXP
+- There is a weak positive linear relationship between **GDP** and **LIFEEXP**. 
+But if we use the logarithm:
+
+```{r}
+
+par(mfrow = c(2, 2))
+
+lnGDP<-log(data$GDP)
+lnHEALTHEXPEND<-log(data$HEALTHEXPEND)
+lnPHYSICIAN<-log(data$PHYSICIAN)
+lnPOP<-log(data$POP)
+
+correlation <- cor(data$LIFEEXP, lnHEALTHEXPEND)
+
+# Crea il grafico di dispersione
+plot(lnHEALTHEXPEND, data$LIFEEXP, main = "correlation", xlab = "lnHEALTHEXPEND", ylab = "LIFEEXP", pch = 16, col = "black")
+legend("topleft", legend = paste("Correlation =", round(correlation, 2)), bty = "n", col = "red", cex = 0.8)
+
+# Aggiungi una linea di regressione
+abline(lm(data$LIFEEXP ~ lnHEALTHEXPEND), col = "red")
+
+correlation2 <- cor(data$LIFEEXP, lnGDP)
+# Crea il grafico di dispersione
+plot(lnGDP, data$LIFEEXP, main = "correlation", xlab = "lnGDP", ylab = "LIFEEXP", pch = 16, col = "black")
+legend("bottomright", legend = paste("Correlation =", round(correlation2, 2)), bty = "n", col = "red", cex = 0.8)
+
+# Aggiungi una linea di regressione
+abline(lm(data$LIFEEXP ~ lnGDP), col = "red")
+
+correlation3 <- cor(data$LIFEEXP, lnPHYSICIAN)
+# Crea il grafico di dispersione
+plot(lnPHYSICIAN, data$LIFEEXP, main = "correlation", xlab = "lnPHYSICIAN", ylab = "LIFEEXP", pch = 16, col = "black")
+legend("topleft", legend = paste("Correlation =", round(correlation3, 2)), bty = "n", col = "red", cex = 0.8)
+
+# Aggiungi una linea di regressione
+abline(lm(data$LIFEEXP ~ lnPHYSICIAN), col = "red")
+
+correlation4 <- cor(data$LIFEEXP, lnPOP)
+# Crea il grafico di dispersione
+plot(lnPOP, data$lnPOP, main = "correlation", xlab = "lnPOP", ylab = "LIFEEXP", pch = 16, col = "black")
+legend("topleft", legend = paste("Correlation =", round(correlation4, 2)), bty = "n", col = "red", cex = 0.8)
+
+# Aggiungi una linea di regressione
+abline(lm(data$LIFEEXP ~ lnPOP), col = "red")
+
+```
+
+
+## Correlation chart
+```{r}
+data$REGION <- factor(data$REGION)
+data$lnGDP <- lnGDP
+data$lnHEALTHEXPEND <- lnHEALTHEXPEND
+data$lnPHYSICIAN <- lnPHYSICIAN
+data$lnPOP <- lnPOP
+chart <-chart.Correlation(data[,c("LIFEEXP", "ILLITERATE", "FERTILITY", "BIRTHATTEND","lnPHYSICIAN", "lnHEALTHEXPEND","PRIVATEHEALTH",  "lnGDP", "lnPOP")])
+#png("correlation_plot1.png", width = 10, height = 8, units = 'in', res = 300)
+#chart
+#dev.off()
+```
+
+## Distribution of Life Expectancy
+```{r variable response, echo = FALSE,  include= TRUE}
+# var response frequency
+ggplot(data, aes(x = LIFEEXP)) +
+  geom_histogram(binwidth = 1, fill = "blue", color = "black") +
+  labs(
+    title = "histogram of LIFEEXP",
+    x = "LIFEEXP value",
+    y = "Frequency"
+  )
+```
+
+- In the figure above, we observe that the 'LIFEEXP' variable exhibits a **left-skewed distribution**.
+- In the following part, linear models will be created using LIFEEXP as response variable
+
+## Linear regression models
+
+- The first model has only **lnPHYSICIAN** as explanatory variable. This variable shows the **highest correlation** with LIFEEXP.
+- With the same logic, subsequent models add **lnHEALTHEXPEND, FERTILITY and REGION** and different metrics has been evaluated.
+- The **adjusted R squared increase** from 0.64 to 0.79 and The **F statistic** slightly decrease.
+- here is the summary of the linear model with **LIFEEXP ~ lnPHYSICIAN + lnHEALTHEXPEND + FERTILITY + REGION**
+
+```{r comment=NA} 
+#modelLin<-lm(LIFEEXP ~ lnPHYSICIAN , data)
+#summary(modelLin)
+#residuals <- resid(modelLin)
+#plot(data$lnPHYSICIAN, residuals)
+#par(mfrow=c(2,2))
+#plot(modelLin)
+```
+```{r comment=NA}
+#modelLin2<-lm(LIFEEXP ~ lnPHYSICIAN + REGION, data)
+#summary(modelLin2)
+#vif(modelLin2)
+#print(modelLin2)
+```
+```{r comment=NA}
+#plot(residuals,data$lnPHYSICIAN)
+#plot(residuals,data$REGION)
+#par(mfrow=c(2,2))
+#plot(modelLin2)
+
+```
+
+```{r comment=NA}
+modelLin3<-lm(LIFEEXP ~ lnPHYSICIAN + lnHEALTHEXPEND + FERTILITY + REGION, data)
+summary(modelLin3)
+```
+
+## Linear regression models
+
+-All numerical variables seem to be very significant. Regarding the categorical variable **REGION**, Africa, as expected, shows a much lower life expectancy compared to REGION 1 used for comparison.
+
+- VIF has been used to check for collinearity among covariates.
+
+```{r comment=NA}
+vif(modelLin3)
+```
+
+- Subsequent models did not overall improve the model, particularly considering the adjusted R-squared.
+- Nonetheless, interaction with **REGION** was tested for each variable; however, no significant interactions were found.
+
+## Linear regression models
+
+- We can notice heteroscedasticity and a qqplot that does not fully reflect the assumptions of linear models. To address this heteroscedasticity, weighted least squares method has been used in subsequent models. Results do not differ much from the models with no WLS.
+
+```{r comment=NA}
+residuals <- resid(modelLin3)
+#par(mfrow=c(2,2))
+plot(modelLin3)
+```
+
+## Linear regression models
+ 
+- The residual plots/explanatory variables do not show particular patterns.
+
+```{r comment=NA}
+residualsz <- resid(modelLin3)
+#par(mfrow=c(2,2))
+plot(data$lnPHYSICIAN,residualsz)
+plot(data$lnHEALTHEXPEND,residualsz)
+plot(data$FERTILITY,residualsz)
+
+```
+
+
+## GAM models
+
+Afterward, different GAM models were implemented; as a test, the following model has all numerical variables included using a spline.
+```{r comment=NA}
+gam3b <-gam(LIFEEXP~ s(ILLITERATE) + s(FERTILITY) + s(PRIVATEHEALTH) + s(BIRTHATTEND) + s(PHYSICIAN) + s(HEALTHEXPEND) + s(GDP) + s(POP) + REGION,    data = data)
+summary(gam3b)
+```
+
+all variables that were significant in the previous linear model are significant also in this model. Surprisingly, even the variable **ILLLITERATE** proves to be significant.
+Below the plot of the gam model.
+
+```{r comment=NA}
+plot(gam3b)
+```
+
+## GAM with few variables
+
+Among the models implemented in GAM, considering the use of B-splines with multiple variables, the simplest model does not exhibit significantly different values of R-squared and deviance explained (as well as GCV and scale est.) compared to more complex models.
+
+```{r comment=NA}
+gam4 <-gam(LIFEEXP~  REGION + FERTILITY + s(PHYSICIAN) + s(HEALTHEXPEND),    data = data)
+summary(gam4)
+```
+
+There are no interactions because they are missing in the previous linear regression model; 
+
+```{r comment=NA}
+plot(gam4)
+```
+
+## Additional comments and conclusion
+
+- Life expectancy differs significantly in different regions. Region 8 ("rich/western countries") has the highest life expectancy while Region 6 (Africa) has the lowest
+
+- The most significant variables in predicting life expectancy are **REGION**, **FERTILITY**, **HEALTHEXPAND**, and **PHYSICIAN**
+
+- Increase in **FERTILITY** results to a decrease in life expectancy as indicated in the scatter plot and models. On the opposite, increase in **HEALTHEXPAND** and **PHYSICIAN** results to higher life expectancy.
+
+- Countries in REGION  4, 6, and 7 have significantly lower life expectancy than countries in REGION 1.
+
+- Downside:
+Region 8 does not seem to be well explained by the proposed model and the numerous models tested. Further investigation is needed.
+
+

@@ -1,0 +1,12 @@
+
+
+.test{
+  font-size: 1.5em;
+  color: black;
+}
+
+
+slides > slide {
+  overflow-x: auto !important;
+  overflow-y: auto !important;
+}
